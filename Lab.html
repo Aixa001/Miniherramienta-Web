@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Mini Laboratorio - Ley de Ohm</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+:root{
+  --bg:#1e1e2f; --card:#2a2a3d; --muted:#3a3a4d; --accent:#4fc3f7; --accent-dark:#0288d1; --danger:#f44336;
+  --text:#f0f0f0; --panel:#333; --canvas:#222;
+}
+html,body{height:100%;margin:0;font-family:"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text);}
+.wrap{max-width:980px;margin:28px auto;padding:20px;background:var(--card);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.6);}
+h1{margin:0 0 12px;text-align:center;color:var(--accent);}
+label{display:block;margin-top:12px;font-weight:700;}
+input[type="text"], textarea{width:100%;padding:10px;border-radius:8px;border:none;background:var(--muted);color:var(--text);box-sizing:border-box;}
+.controls{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px;}
+button{padding:12px;border-radius:8px;border:none;background:var(--accent);color:#012;cursor:pointer;font-weight:700;transition:all .18s;}
+button:hover{background:var(--accent-dark);color:#fff;}
+.btn-danger{background:var(--danger);color:#fff;}
+.btn-danger:hover{background:#c62828;}
+.result{margin-top:18px;padding:14px;background:var(--panel);border-radius:8px;}
+table{width:100%;border-collapse:collapse;margin-top:12px;}
+th,td{padding:10px;border:1px solid #555;text-align:center;}
+th{background:var(--accent-dark);color:#fff;}
+tr:nth-child(even){background:var(--muted);}
+#chartWrap{overflow-x:auto;width:100%;border-radius:8px;margin-top:16px;}
+canvas{height:320px;display:block;background:var(--canvas);border-radius:8px;padding:8px;box-sizing:border-box;}
+.small{font-size:13px;color:#cfd8dc;margin-top:8px;}
+
+/* Modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;}
+.modal-card{width:92%;max-width:720px;background:var(--card);padding:18px;border-radius:12px;position:relative;box-shadow:0 10px 40px rgba(0,0,0,.7);}
+.modal-close{position:absolute;right:14px;top:10px;font-size:22px;color:var(--text);cursor:pointer;font-weight:700;}
+.modal h3{margin-top:0;color:var(--accent);}
+.modal p{color:var(--text);line-height:1.4;}
+.modal-footer{display:flex;align-items:center;justify-content:space-between;margin-top:12px;}
+.modal-footer .left{font-size:13px;color:#cfd8dc;}
+.modal-footer .right{display:flex;gap:8px;align-items:center;}
+.checkbox-inline{display:flex;align-items:center;gap:6px;color:#cfd8dc;font-size:13px;}
+@media (max-width:640px){
+  .controls{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- Modal informativo (cerrable con X) -->
+<div id="welcomeModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" style="display:flex;">
+  <div class="modal-card" role="document">
+    <div id="modalClose" class="modal-close" aria-label="Cerrar">×</div>
+    <h3 id="modalTitle">Bienvenido al Mini Laboratorio</h3>
+    <p>
+      Esta página te permite ingresar listas de <strong>voltajes</strong> y <strong>corrientes</strong> (separadas por comas),
+      calcular la <strong>resistencia</strong> para cada par usando la Ley de Ohm R = V / I, mostrar los resultados en una tabla,
+      ver promedios y visualizar un gráfico interactivo.
+    </p>
+    <p class="small">
+      Ingresa valores separados por comas en ambos campos y pulsa <strong>Generar Resultados</strong>. Si una corriente es 0, la resistencia se mostrará como ∞.
+    </p>
+    <div class="modal-footer">
+      <div class="left">
+        <label class="checkbox-inline"><input id="dontShow" type="checkbox"> No mostrar de nuevo</label>
+      </div>
+      <div class="right">
+        <button id="modalCloseBtn" style="padding:8px 12px;border-radius:8px;border:none;background:var(--accent);color:#012;font-weight:700;cursor:pointer;">Entendido</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" role="main">
+  <h1>Mini Laboratorio - Ley de Ohm</h1>
+  <label for="voltajes"><strong>Voltajes (separados por coma)</strong></label>
+  <input id="voltajes" type="text" placeholder="Ejemplo: 5, 10, 15" aria-label="Voltajes separados por coma">
+  <label for="corrientes"><strong>Corrientes (separadas por coma)</strong></label>
+  <input id="corrientes" type="text" placeholder="Ejemplo: 0.5, 1, 1.5" aria-label="Corrientes separadas por coma">
+  <div class="controls">
+    <button id="btnGenerate">Generar Resultados</button>
+    <button id="btnClear" class="btn-danger">Limpiar</button>
+  </div>
+  <div id="resultado" class="result" aria-live="polite"></div>
+  <div id="chartWrap">
+    <canvas id="grafico" role="img" aria-label="Gráfico Voltaje vs Corriente"></canvas>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let datosTabla = [];
+const inputV = document.getElementById('voltajes');
+const inputI = document.getElementById('corrientes');
+const resultadoDiv = document.getElementById('resultado');
+const canvasEl = document.getElementById('grafico');
+const wrap = document.getElementById('chartWrap');
+const btnGenerate = document.getElementById('btnGenerate');
+const btnClear = document.getElementById('btnClear');
+
+// Modal elements
+const modal = document.getElementById('welcomeModal');
+const modalClose = document.getElementById('modalClose');
+const modalCloseBtn = document.getElementById('modalCloseBtn');
+const dontShow = document.getElementById('dontShow');
+
+// Mostrar modal al cargar salvo que el usuario haya marcado no mostrar
+window.addEventListener('load', () => {
+  const hidden = localStorage.getItem('lab_modal_hidden');
+  if (hidden === '1') {
+    modal.style.display = 'none';
+  } else {
+    modal.style.display = 'flex';
+    modalClose.focus();
+  }
+});
+
+// Función para cerrar modal y opcionalmente recordar la preferencia
+function cerrarModal() {
+  if (dontShow && dontShow.checked) {
+    localStorage.setItem('lab_modal_hidden', '1');
+  }
+  modal.style.display = 'none';
+  btnGenerate.focus();
+}
+
+modalClose.addEventListener('click', cerrarModal);
+modalCloseBtn.addEventListener('click', cerrarModal);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modal.style.display !== 'none') cerrarModal();
+});
+
+function parseLista(text) {
+  if (!text) return [];
+  return text.split(',')
+    .map(s => s.trim())
+    .filter(s => s !== '')
+    .map(s => Number(s.replace(',', '.')))
+    .filter(n => !Number.isNaN(n));
+}
+
+function mostrarError(msg) {
+  resultadoDiv.innerHTML = `<div style="color:#ffdddd;background:#5a1f1f;padding:10px;border-radius:6px;">${msg}</div>`;
+}
+
+function generarTodo() {
+  const voltajes = parseLista(inputV.value);
+  const corrientes = parseLista(inputI.value);
+  if (voltajes.length === 0 || corrientes.length === 0) {
+    mostrarError('Ingresa al menos un valor válido en ambos campos.');
+    return;
+  }
+  if (voltajes.length !== corrientes.length) {
+    mostrarError('Las listas deben tener la misma longitud.');
+    return;
+  }
+
+  const resistencias = voltajes.map((v, i) => {
+    const I = corrientes[i];
+    return (I === 0) ? null : (v / I);
+  });
+
+  datosTabla = voltajes.map((v, i) => ({ voltaje: v, corriente: corrientes[i], resistencia: resistencias[i] }));
+
+  let html = '<table aria-label="Tabla de mediciones"><thead><tr><th>Voltaje (V)</th><th>Corriente (A)</th><th>Resistencia (Ω)</th></tr></thead><tbody>';
+  datosTabla.forEach(d => {
+    const rText = (d.resistencia === null) ? '∞' : d.resistencia.toFixed(2);
+    html += `<tr><td>${d.voltaje.toFixed(2)}</td><td>${d.corriente.toFixed(2)}</td><td>${rText}</td></tr>`;
+  });
+  html += '</tbody></table>';
+
+  const promedioV = (voltajes.reduce((a,b)=>a+b,0) / voltajes.length);
+  const promedioI = (corrientes.reduce((a,b)=>a+b,0) / corrientes.length);
+  const validR = datosTabla.filter(d => d.resistencia !== null).map(d => d.resistencia);
+  const promedioR = validR.length ? (validR.reduce((a,b)=>a+b,0) / validR.length) : null;
+
+  html += `<p style="margin-top:12px;"><strong>Promedios:</strong><br>
+  Voltaje promedio = ${promedioV.toFixed(2)} V<br>
+  Corriente promedio = ${promedioI.toFixed(2)} A<br>
+  Resistencia promedio = ${promedioR !== null ? promedioR.toFixed(2) + ' Ω' : 'N/A'}</p>`;
+
+  resultadoDiv.innerHTML = html;  generarGrafico(voltajes, corrientes);
+}
+
+function generarGrafico(voltajes, corrientes) {
+  if (!Array.isArray(voltajes) || !Array.isArray(corrientes) || voltajes.length === 0) return;
+  const x = voltajes.map(v => Number(v)).filter(v => !Number.isNaN(v));
+  const y = corrientes.map(i => Number(i)).filter(i => !Number.isNaN(i));
+  if (x.length !== y.length || x.length === 0) return;
+
+  const pxPerPoint = 60;
+  const maxWidth = 3000;
+  const minWidth = wrap.clientWidth || 600;
+  const desiredWidth = Math.min(maxWidth, Math.max(minWidth, x.length * pxPerPoint));
+  canvasEl.width = desiredWidth;
+
+  if (window._labChartInstance) {
+    try { window._labChartInstance.destroy(); } catch(e){}
+    window._labChartInstance = null;
+  }
+
+  const ctx = canvasEl.getContext('2d');
+  window._labChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: x.map(v => v.toFixed(2)),
+      datasets: [{
+        label: 'Corriente (A)',
+        data: y,
+        borderColor: '#4fc3f7',
+        backgroundColor: 'rgba(79,195,247,0.12)',
+        tension: 0.2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: false,
+      maintainAspectRatio: false,
+      scales: {
+        x: { title: { display: true, text: 'Voltaje (V)' },
+             ticks: { autoSkip: true, maxTicksLimit: 12, maxRotation: 45, minRotation: 0 } },
+        y: { title: { display: true, text: 'Corriente (A)' } }
+      },
+      plugins: { legend: { display: true } }
+    }
+  });
+}
+
+function limpiarTodo() {
+  inputV.value = '';
+  inputI.value = '';
+  resultadoDiv.innerHTML = '';
+  datosTabla = [];
+  if (window._labChartInstance) {
+    window._labChartInstance.destroy();
+    window._labChartInstance = null;
+  }
+  canvasEl.width = wrap.clientWidth || 600;
+}
+
+// Eventos
+btnGenerate.addEventListener('click', generarTodo);
+btnClear.addEventListener('click', limpiarTodo);
+
+// Permitir Enter para generar (en cualquiera de los inputs)
+[inputV, inputI].forEach(el => {
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      generarTodo();
+    }
+  });
+});
+
+// Inicializar canvas width al tamaño del contenedor
+window.addEventListener('load', () => {
+  canvasEl.width = wrap.clientWidth || 600;
+});
+</script>
+</body>
+</html>
